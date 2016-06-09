@@ -6,6 +6,7 @@ import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.View;
+import android.widget.TextView;
 
 public class Main2Activity extends AppCompatActivity {
 
@@ -24,6 +25,12 @@ public class Main2Activity extends AppCompatActivity {
                         .setAction("Action", null).show();
             }
         });
+
+        TextView tv = (TextView) findViewById(R.id.textview);
+
+        CountDownService.Result result = (CountDownService.Result) getIntent().getSerializableExtra(CountDownService.COUNTDOWNSERVICE_RESULT_EXTRA);
+
+        tv.setText(result.toString());
     }
 
 }

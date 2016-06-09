@@ -11,62 +11,86 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.support.annotation.NonNull;
 import android.support.v4.app.NotificationCompat;
+import android.support.v4.content.LocalBroadcastManager;
 
 import java.util.concurrent.TimeUnit;
 
 public class CountDownService extends Service {
 
-    public static final int NOTIFICATION_ID = 101;
+    public static final String COUNTDOWNSERVICE_RESULT_EXTRA = "countDownServiceResultExtra";
     public static final int DEFAULT_RESERVATION_HOLD_TIME = 60 * 15 * 1000;
-    public static final String STOP_SERVICE = "stopService";
-    public static final int KILL_SERVICE = 666;
+    public static final String CANCEL_SCAN = "cancelScan";
+    public static final int KILL_SERVICE_REQUEST_CODE = 666;
     public static final String RESERVATION_HOLD_TIME_EXTRA = "reservationHoldTimeExtra";
     public static final String OPEN_ACTIVITY_CLASSNAME_EXTRA = "openActivityClassnameExtra";
+    private static final int NOTIFICATION_HOLD_ID = 101;
+    private static final int NOTIFICATION_TIMED_OUT_ID = 102;
+    private static final String STOP_SCAN_ACTION = "stopScanAction";
     private Notification notification;
     private PendingIntent pendingOpenIntent;
     private NotificationCompat.Action action;
     private Handler handler;
-    private Runnable updateNotification;
+    private Runnable notificationUpdater;
     private String notificationText;
     private long timeLeft;
     private long expirationTime;
-    private Intent stopServiceIntent;
+    private Class targetActivity;
 
     public CountDownService() {
+    }
+
+    public static void startCountDownService(Context context, Class classOfActivityToLaunch, long timeToLiveMillis) {
+        Intent serviceIntent = new Intent(context, CountDownService.class);
+        serviceIntent.putExtra(RESERVATION_HOLD_TIME_EXTRA, timeToLiveMillis);
+        serviceIntent.putExtra(OPEN_ACTIVITY_CLASSNAME_EXTRA, classOfActivityToLaunch);
+        context.startService(serviceIntent);
+
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
 
-        if (intent.getBooleanExtra(STOP_SERVICE, false)) {
-            stopHold();
+        if (intent.getBooleanExtra(CANCEL_SCAN, false)) {
+            cancelScan();
             return START_NOT_STICKY;
         }
 
-        stopServiceIntent = new Intent(this, CountDownService.class);
-        long reservationHoldTime = intent.getLongExtra(RESERVATION_HOLD_TIME_EXTRA, DEFAULT_RESERVATION_HOLD_TIME);
+        targetActivity = (Class) intent.getSerializableExtra(OPEN_ACTIVITY_CLASSNAME_EXTRA);
+        pendingOpenIntent = getOpenPendingIntent(Result.OPENED);
 
-        expirationTime = System.currentTimeMillis() + reservationHoldTime;
+        expirationTime = System.currentTimeMillis() + intent.getLongExtra(RESERVATION_HOLD_TIME_EXTRA, DEFAULT_RESERVATION_HOLD_TIME);
         updateTimeLeft();
 
 
-        Class requestedClass = (Class) intent.getSerializableExtra(OPEN_ACTIVITY_CLASSNAME_EXTRA);
-        Intent openIntent = new Intent(this, (requestedClass == null) ? MainActivity.class : requestedClass);
-        openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        pendingOpenIntent = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_UPDATE_CURRENT);
-
-        stopServiceIntent.putExtra(STOP_SERVICE, true);
-        PendingIntent stopServicePendingIntent = PendingIntent.getService(this, KILL_SERVICE, stopServiceIntent, PendingIntent.FLAG_CANCEL_CURRENT);
-        action = new NotificationCompat.Action.Builder(android.R.drawable.ic_media_pause, "Cancel reservation", stopServicePendingIntent)
+        PendingIntent cancelPendingIntent = getCancelPendingIntent();
+        action = new NotificationCompat.Action.Builder(android.R.drawable.ic_media_pause, "Cancel scan", cancelPendingIntent)
                 .build();
-        notification = createNotification();
-        startForeground(NOTIFICATION_ID, notification);
 
-        updateNotification = createNotificationUpdater();
+        notification = createHoldingNotification();
+        startForeground(NOTIFICATION_HOLD_ID, notification);
+
+        notificationUpdater = createNotificationUpdater();
         handler = createHandler();
-        handler.post(updateNotification);
+        handler.post(notificationUpdater);
 
         return START_STICKY;
+    }
+
+    private PendingIntent getCancelPendingIntent() {
+        Intent cancelIntent = new Intent(this, CountDownService.class);
+        cancelIntent.putExtra(CANCEL_SCAN, true);
+        return PendingIntent.getService(this, KILL_SERVICE_REQUEST_CODE, cancelIntent, PendingIntent.FLAG_CANCEL_CURRENT);
+    }
+
+    private PendingIntent getOpenPendingIntent(Result result) {
+        Intent openIntent = new Intent(this, targetActivity);
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.putExtra(COUNTDOWNSERVICE_RESULT_EXTRA, result);
+        return PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+    }
+
+    private void updateOpenIntent(Result result) {
+        getOpenPendingIntent(result);
     }
 
     @NonNull
@@ -76,7 +100,8 @@ public class CountDownService extends Service {
             public void run() {
                 updateTimeLeft();
                 if (timeLeft <= 0) {
-                    stopHold();
+                    sendHoldTimedOutNotification();
+                    cancelScan();
                 } else {
                     updateNotification();
                     long updateTime = timeLeft > TimeUnit.MINUTES.toMillis(2) ? TimeUnit.MINUTES.toMillis(1) : TimeUnit.SECONDS.toMillis(1);
@@ -84,6 +109,13 @@ public class CountDownService extends Service {
                 }
             }
         };
+    }
+
+    private void sendHoldTimedOutNotification() {
+        updateOpenIntent(Result.TIMED_OUT);
+        NotificationManager mNotificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        notification = createHoldTimedOutNotification();
+        mNotificationManager.notify(NOTIFICATION_TIMED_OUT_ID, notification);
     }
 
     private Handler createHandler() {
@@ -94,14 +126,19 @@ public class CountDownService extends Service {
 
     private void updateNotification() {
         NotificationManager mNotificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        notification = createNotification();
-        mNotificationManager.notify(NOTIFICATION_ID, notification);
+        notification = createHoldingNotification();
+        mNotificationManager.notify(NOTIFICATION_HOLD_ID, notification);
     }
 
-    private void stopHold() {
-        handler.removeCallbacks(updateNotification);
-        //remove reservation.
-        stopSelf();
+    private void cancelScan() {
+        handler.removeCallbacks(notificationUpdater);
+        broadcastScanStop();
+//        stopSelf();
+    }
+
+    private void broadcastScanStop() {
+        LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(this);
+        localBroadcastManager.sendBroadcast(new Intent(STOP_SCAN_ACTION));
     }
 
     private void updateTimeLeft() {
@@ -109,7 +146,7 @@ public class CountDownService extends Service {
         notificationText = timeLeft > 120 ? String.format("Time left to start reservation: %d minutes", timeLeft / 60) : String.format("Time left to start reservation: %d seconds", timeLeft);
     }
 
-    private Notification createNotification() {
+    private Notification createHoldingNotification() {
         return new NotificationCompat.Builder(this)
                 .setContentTitle("Zipcar vehicle held")
                 .setContentText(notificationText)
@@ -119,16 +156,38 @@ public class CountDownService extends Service {
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setGroup("GROUP")
+                .setGroup("zipcar")
                 .setGroupSummary(true)
                 .addAction(action)
+                .build();
+    }
+
+    private Notification createHoldTimedOutNotification() {
+        return new NotificationCompat.Builder(this)
+                .setContentTitle("Hold timed out")
+                .setContentText("Zipcar vehicle hold timed out")
+                .setSmallIcon(android.R.drawable.ic_media_ff)
+                .setContentIntent(pendingOpenIntent)
+                .setAutoCancel(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setOngoing(false)
+                .setOnlyAlertOnce(true)
+                .setGroup("zipcar")
+                .setGroupSummary(true)
+                .setDefaults(Notification.DEFAULT_ALL)
                 .build();
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         // TODO: Return the communication channel to the service.
-        throw new UnsupportedOperationException("Not yet implemented");
+        throw new UnsupportedOperationException("Does not support binding");
+    }
+
+    enum Result {
+        OPENED,
+        CANCELLED,
+        TIMED_OUT
     }
 
 }

@@ -13,4 +13,9 @@
     tools:context="uk.co.jatra.countdownnotification.Main2Activity"
     tools:showIn="@layout/activity_main2">
 
+    <TextView
+        android:id="@+id/textview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
 </RelativeLayout>
