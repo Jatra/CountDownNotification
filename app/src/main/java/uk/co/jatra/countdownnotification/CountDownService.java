@@ -148,7 +148,7 @@ public class CountDownService extends Service {
 
     private Notification createHoldingNotification() {
         return new NotificationCompat.Builder(this)
-                .setContentTitle("Zipcar vehicle held")
+                .setContentTitle("Counting down")
                 .setContentText(notificationText)
                 .setSmallIcon(android.R.drawable.ic_media_ff)
                 .setContentIntent(pendingOpenIntent)
@@ -156,7 +156,7 @@ public class CountDownService extends Service {
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setGroup("zipcar")
+                .setGroup("jatra")
                 .setGroupSummary(true)
                 .addAction(action)
                 .build();
@@ -164,15 +164,15 @@ public class CountDownService extends Service {
 
     private Notification createHoldTimedOutNotification() {
         return new NotificationCompat.Builder(this)
-                .setContentTitle("Hold timed out")
-                .setContentText("Zipcar vehicle hold timed out")
+                .setContentTitle("Timed out")
+                .setContentText("timed out")
                 .setSmallIcon(android.R.drawable.ic_media_ff)
                 .setContentIntent(pendingOpenIntent)
                 .setAutoCancel(true)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setOngoing(false)
                 .setOnlyAlertOnce(true)
-                .setGroup("zipcar")
+                .setGroup("jatra")
                 .setGroupSummary(true)
                 .setDefaults(Notification.DEFAULT_ALL)
                 .build();
